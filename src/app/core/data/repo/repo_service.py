@@ -97,7 +97,7 @@ class RepoService(metaclass=SingletonMeta):
     def store_temporary_file(self, temp: NamedTemporaryFile) -> Path:
         return Path(shutil.move(temp.name, self.temp_files_root))
 
-    def _create_directory_structure(self, remove_if_exists: bool = False):
+    def _create_repo_directory_structure(self, remove_if_exists: bool = False):
         try:
             if self.repo_root.exists() and remove_if_exists:
                 logger.warning(f"Removing DWTS Repo at {self.repo_root}")
@@ -129,20 +129,11 @@ class RepoService(metaclass=SingletonMeta):
             logger.error(msg)
             raise SystemExit(msg)
 
-    def get_path_to_file(self, sdoc: SourceDocumentRead, raise_if_not_exists: bool = False) -> Path:
-        dst_path = self._generate_dst_path(proj_id=sdoc.project_id, filename=sdoc.filename)
-        if raise_if_not_exists and not dst_path.exists():
-            logger.error(
-                (f"SourceDocument {sdoc.filename} with ID {sdoc.id} from Project {sdoc.project_id} cannot be"
-                 f" found in Repository at {dst_path}!"))
-            raise SourceDocumentNotFoundInRepositoryError(sdoc=sdoc, dst=str(dst_path))
-        return dst_path
-
-    def _generate_dst_path(self, proj_id: int, filename: str) -> Path:
+    def _generate_document_dst_path(self, proj_id: int, filename: str) -> Path:
         return self.proj_root.joinpath(f"{proj_id}/docs/{filename}")
 
-    def _make_directory_structure(self, proj_id: int, filename: str) -> Optional[Path]:
-        dst_path = self._generate_dst_path(proj_id=proj_id, filename=filename)
+    def _create_directory_structure_for_project_file(self, proj_id: int, filename: str) -> Optional[Path]:
+        dst_path = self._generate_document_dst_path(proj_id=proj_id, filename=filename)
         try:
             if dst_path.exists():
                 logger.warning("Cannot store uploaded file because a file with the same name already exists!")
@@ -155,6 +146,26 @@ class RepoService(metaclass=SingletonMeta):
 
         return dst_path
 
+    def _move_uploaded_temporary_archive_to_project(self, proj_id: int, temporary_archive_file_path: Path) \
+            -> Optional[Path]:
+        try:
+            dst = self._create_directory_structure_for_project_file(proj_id=proj_id,
+                                                                    filename=temporary_archive_file_path.name)
+            shutil.move(temporary_archive_file_path, dst)
+            return dst
+        except Exception as e:
+            # FIXME Flo: Throw or what?!
+            logger.warning(f"Cannot store temporary archive file in project repo! Error:\n {e}")
+
+    def get_path_to_file(self, sdoc: SourceDocumentRead, raise_if_not_exists: bool = False) -> Path:
+        dst_path = self._generate_document_dst_path(proj_id=sdoc.project_id, filename=sdoc.filename)
+        if raise_if_not_exists and not dst_path.exists():
+            logger.error(
+                (f"SourceDocument {sdoc.filename} with ID {sdoc.id} from Project {sdoc.project_id} cannot be"
+                 f" found in Repository at {dst_path}!"))
+            raise SourceDocumentNotFoundInRepositoryError(sdoc=sdoc, dst=str(dst_path))
+        return dst_path
+
     def get_sdoc_url(self, sdoc: SourceDocumentRead) -> Optional[str]:
         dst_path = RepoService().get_path_to_file(sdoc, raise_if_not_exists=True)
         return url.urljoin(self.base_url, str(dst_path.relative_to(self.repo_root)))
@@ -164,19 +175,9 @@ class RepoService(metaclass=SingletonMeta):
                                                                temporary_archive_file_path=temporary_archive_file_path)
         return self._extract_archive(archive_path=dst)
 
-    def _move_uploaded_temporary_archive_to_project(self, proj_id: int, temporary_archive_file_path: Path) -> Optional[
-        Path]:
-        try:
-            dst = self._make_directory_structure(proj_id=proj_id, filename=temporary_archive_file_path.name)
-            shutil.move(temporary_archive_file_path, dst)
-            return dst
-        except Exception as e:
-            # FIXME Flo: Throw or what?!
-            logger.warning(f"Cannot store temporary archive file in project repo! Error:\n {e}")
-
     def store_uploaded_file(self, proj_id: int, uploaded_file: UploadFile) -> Path:
         try:
-            dst = self._make_directory_structure(proj_id=proj_id, filename=uploaded_file.filename)
+            dst = self._create_directory_structure_for_project_file(proj_id=proj_id, filename=uploaded_file.filename)
 
             with dst.open("wb") as buffer:
                 shutil.copyfileobj(uploaded_file.file, buffer)
@@ -191,7 +192,7 @@ class RepoService(metaclass=SingletonMeta):
 
     def generate_source_document_create_dto_from_file(self, proj_id: int, filename: str) -> Tuple[Path,
                                                                                                   SourceDocumentCreate]:
-        dst_path = self._generate_dst_path(proj_id=proj_id, filename=filename)
+        dst_path = self._generate_document_dst_path(proj_id=proj_id, filename=filename)
         if not dst_path.exists():
             logger.error(f"File '{filename}' in Project {proj_id} cannot be found in Repository at {dst_path}!")
             raise FileNotFoundInRepositoryError(proj_id=proj_id, filename=filename, dst=str(dst_path))
@@ -208,3 +209,4 @@ class RepoService(metaclass=SingletonMeta):
                                           doctype=doctype,
                                           project_id=proj_id)
         return dst_path, create_dto
+

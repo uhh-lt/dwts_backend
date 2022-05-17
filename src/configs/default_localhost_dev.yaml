@@ -294,10 +294,13 @@ docprepro:
   image:
     default_detr_model: "facebook/detr-resnet-101"
     confidence_threshold: 0.3
+  mmsimsearch:
+    default_clip_model: "openai/clip-vit-large-patch14"
   celery:
     batch_size:
       text: 50
       image: 10
+      mmsimsearch: 50
     backend:
       host: ${oc.env:REDIS_HOST, localhost}
       port: ${oc.env:REDIS_PORT, 6379}
